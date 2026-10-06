@@ -1,0 +1,45 @@
+name: CI
+
+# Builds and tests the shell against the release binaries named in
+# Package.swift. Needs no secrets, so it runs on pull requests from forks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Build and test (macOS)
+        run: |
+          swift build
+          swift test
+
+      - name: Build (iOS Simulator)
+        run: |
+          xcodebuild build -scheme MoqomKit-Package \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd"
+
+      - name: Build the sample (iOS Simulator)
+        run: |
+          brew install xcodegen
+          cd Samples/MoqomRoom
+          xcodegen generate
+          xcodebuild build -project MoqomRoom.xcodeproj -scheme MoqomRoom \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd-sample" \
+            CODE_SIGNING_ALLOWED=NO

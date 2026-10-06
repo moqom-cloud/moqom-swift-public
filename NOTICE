@@ -1,0 +1,24 @@
+MoqomKit — MOQOM Apple-platform SDK
+Copyright 2026 Elliott Wave LLC. All rights reserved except as licensed below.
+
+The source code in this repository is licensed under the Apache License,
+Version 2.0; see LICENSE.
+
+The prebuilt frameworks attached to releases (MoqomCore, MoqomWire, MoqomKit,
+MoqomLoopback .xcframework) are not covered by the Apache License. They are
+licensed under the MOQOM SDK Binary License; see LICENSE-BINARY.md.
+
+"MOQOM" and the MOQOM logo are trademarks of Elliott Wave LLC. Neither licence
+grants any right to use them (Apache License, Section 6).
+
+Elliott Wave LLC has patent applications pending. Section 3 of the Apache
+License governs what patent rights accompany the source in this repository,
+and no other patent license is granted, expressly or by implication.
+
+-------------------------------------------------------------------------------
+Third-party components
+-------------------------------------------------------------------------------
+
+The current release frameworks link only Apple system frameworks and contain
+no third-party code. Third-party notices for future releases will be listed
+here.

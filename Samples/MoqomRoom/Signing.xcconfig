@@ -1,0 +1,24 @@
+// Shared signing and endpoint settings for the sample app.
+//
+//   cp Local.xcconfig.example Local.xcconfig   # then fill in your Team ID
+//   xcodegen generate
+//
+// Local.xcconfig is gitignored. Without it the project still generates and
+// builds for the simulator; only device deployment needs a team.
+
+MOQOM_BUNDLE_PREFIX = cloud.moqom
+PRODUCT_BUNDLE_IDENTIFIER = $(MOQOM_BUNDLE_PREFIX).room
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+
+// Where the app dials. Hosts only: `//` starts a comment in an xcconfig, so a
+// URL cannot be written here. An empty relay host runs on the in-memory
+// loopback relay, which needs no account and no network.
+MOQOM_RELAY_HOST =
+MOQOM_RELAY_PORT = 443
+
+// Where the app asks for a session token when it holds a device credential.
+MOQOM_JOIN_HOST = api.moqom.cloud
+MOQOM_JOIN_PORT = 443
+
+#include? "Local.xcconfig"

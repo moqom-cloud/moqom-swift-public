@@ -1,0 +1,139 @@
+name: Release
+
+# Builds the core XCFrameworks from the private core repository, writes their
+# checksums into Package.swift, tags the release and attaches the zips.
+#
+# Runs only where the private core is reachable. Required configuration:
+#
+#   secrets.MOQOM_CORE_TOKEN       Fine-grained token (or deploy-key-backed PAT)
+#                                  with read access to the private core repo.
+#                                  Without it the job is skipped, not failed.
+#   vars.MOQOM_CORE_REPOSITORY     Private core repo, owner/name.
+#                                  Default: moqom-cloud/moqom-swift-core
+#
+# Optional, to sign the frameworks:
+#
+#   secrets.APPLE_CERTIFICATE_P12      base64 of a .p12 holding an Apple
+#                                      Distribution or Developer ID certificate
+#   secrets.APPLE_CERTIFICATE_PASSWORD password for that .p12
+#   secrets.CODESIGN_IDENTITY          identity name, e.g.
+#                                      "Apple Distribution: Elliott Wave LLC (TEAMID)"
+#
+# The default GITHUB_TOKEN pushes the release commit and tag and creates the
+# release; the job needs `contents: write`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (semver, no leading v)
+        required: true
+      core_ref:
+        description: Branch, tag or commit of the private core to build
+        required: false
+        default: main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    # Never on a fork, and only when the private core can be read.
+    if: github.repository == 'moqom-cloud/moqom-swift'
+    timeout-minutes: 120
+    env:
+      HAS_CORE_TOKEN: ${{ secrets.MOQOM_CORE_TOKEN != '' }}
+    steps:
+      - name: Check for private core access
+        if: env.HAS_CORE_TOKEN != 'true'
+        run: |
+          echo "::notice::MOQOM_CORE_TOKEN is not set; skipping the binary release."
+
+      - uses: actions/checkout@v4
+        if: env.HAS_CORE_TOKEN == 'true'
+        with:
+          path: shell
+
+      - uses: actions/checkout@v4
+        if: env.HAS_CORE_TOKEN == 'true'
+        with:
+          repository: ${{ vars.MOQOM_CORE_REPOSITORY || 'moqom-cloud/moqom-swift-core' }}
+          ref: ${{ inputs.core_ref }}
+          token: ${{ secrets.MOQOM_CORE_TOKEN }}
+          path: core
+          persist-credentials: false
+
+      - name: Select Xcode 26
+        if: env.HAS_CORE_TOKEN == 'true'
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Import signing certificate
+        if: env.HAS_CORE_TOKEN == 'true' && env.P12 != ''
+        env:
+          P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build XCFrameworks
+        if: env.HAS_CORE_TOKEN == 'true'
+        working-directory: shell
+        env:
+          MOQOM_CORE_SRC: ${{ github.workspace }}/core
+          VERSION: ${{ inputs.version }}
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          KEEP_SYMBOLS: "1"
+        run: Scripts/build-xcframeworks.sh
+
+      - name: Keep symbols privately
+        if: env.HAS_CORE_TOKEN == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: symbols-${{ inputs.version }}
+          path: shell/build/xcframeworks/symbols
+          retention-days: 90
+
+      - name: Write checksums into Package.swift and tag
+        if: env.HAS_CORE_TOKEN == 'true'
+        working-directory: shell
+        run: |
+          Scripts/update-manifest.sh "${{ inputs.version }}" build/xcframeworks/checksums.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release ${{ inputs.version }}"
+          git tag "${{ inputs.version }}"
+          git push origin HEAD "${{ inputs.version }}"
+
+      - name: Create the release
+        if: env.HAS_CORE_TOKEN == 'true'
+        working-directory: shell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.version }}" \
+            build/xcframeworks/*.xcframework.zip \
+            build/xcframeworks/checksums.txt \
+            --title "${{ inputs.version }}" \
+            --generate-notes
+
+      - name: Verify the published package resolves
+        if: env.HAS_CORE_TOKEN == 'true'
+        working-directory: shell
+        run: |
+          rm -rf Frameworks .build
+          swift build
